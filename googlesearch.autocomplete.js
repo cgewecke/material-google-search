@@ -1,12 +1,25 @@
-angular
-    .module('material.components.gs.autocomplete')
-    .controller('MdAutocompleteCtrl', MdAutocompleteCtrl);
+
+(function(){
+
+angular.module('md.googlesearch.autocomplete', [
+  'material.core',
+  'material.components.icon',
+  'material.components.virtualRepeat'
+])
+
+.controller('GsAutocompleteCtrl', GsAutocompleteCtrl)
+.controller('GsHighlightCtrl', GsHighlightCtrl)
+.directive('gsAutocompleteParentScope', GsAutocompleteParentScope)
+.directive('gsHighlightText', GsHighlight)
+.directive('gsAutocomplete', GsAutocomplete)
+
+
 
 var ITEM_HEIGHT  = 41,
     MAX_HEIGHT   = 5.5 * ITEM_HEIGHT,
     MENU_PADDING = 8;
 
-function MdAutocompleteCtrl ($scope, $element, $mdUtil, $mdConstant, $mdTheming, $window,
+function GsAutocompleteCtrl ($scope, $element, $mdUtil, $mdConstant, $mdTheming, $window,
                              $animate, $rootElement, $attrs, $q) {
   //-- private variables
   var ctrl                 = this,
@@ -625,7 +638,240 @@ function MdAutocompleteCtrl ($scope, $element, $mdUtil, $mdConstant, $mdTheming,
 
 }
 
-/* -------- GS Code to integrate above -----------*/
+
+// ----------------- Highlight Controller ----------------------
+function GsHighlightCtrl ($scope, $element, $attrs) {
+  this.init = init;
+
+  function init (termExpr, unsafeTextExpr) {
+    var text = null,
+        regex = null,
+        flags = $attrs.mdHighlightFlags || '',
+        watcher = $scope.$watch(function($scope) {
+          return {
+            term: termExpr($scope),
+            unsafeText: unsafeTextExpr($scope)
+          };
+        }, function (state, prevState) {
+          if (text === null || state.unsafeText !== prevState.unsafeText) {
+            text = angular.element('<div>').text(state.unsafeText).html()
+          }
+          if (regex === null || state.term !== prevState.term) {
+            regex = getRegExp(state.term, flags);
+          }
+
+          $element.html(text.replace(regex, '<span class="highlight">$&</span>'));
+        }, true);
+    $element.on('$destroy', function () { watcher(); });
+  }
+
+  function sanitize (term) {
+    return term && term.replace(/[\\\^\$\*\+\?\.\(\)\|\{}\[\]]/g, '\\$&');
+  }
+
+  function getRegExp (text, flags) {
+    var str = '';
+    if (flags.indexOf('^') >= 1) str += '^';
+    str += text;
+    if (flags.indexOf('$') >= 1) str += '$';
+    return new RegExp(sanitize(str), flags.replace(/[\$\^]/g, ''));
+  }
+}
+
+
+// ----------------- Highlight Directive ----------------------
+function GsHighlight ($interpolate, $parse) {
+  return {
+    terminal: true,
+    controller: 'MdHighlightCtrl',
+    compile: function mdHighlightCompile(tElement, tAttr) {
+      var termExpr = $parse(tAttr.mdHighlightText);
+      var unsafeTextExpr = $interpolate(tElement.html());
+
+      return function mdHighlightLink(scope, element, attr, ctrl) {
+        ctrl.init(termExpr, unsafeTextExpr);
+      };
+    }
+  };
+}
+
+// ----------------- AutoComplete Directive ----------------------
+function GsAutocomplete () {
+  return {
+    controller:   'GsAutocompleteCtrl',
+    controllerAs: '$gsAutocompleteCtrl',
+    scope:        {
+      inputName:      '@mdInputName',
+      inputMinlength: '@mdInputMinlength',
+      inputMaxlength: '@mdInputMaxlength',
+      searchText:     '=?mdSearchText',
+      selectedItem:   '=?mdSelectedItem',
+      itemsExpr:      '@mdItems',
+      itemText:       '&mdItemText',
+      placeholder:    '@placeholder',
+      noCache:        '=?mdNoCache',
+      selectOnMatch:  '=?mdSelectOnMatch',
+      itemChange:     '&?mdSelectedItemChange',
+      textChange:     '&?mdSearchTextChange',
+      minLength:      '=?mdMinLength',
+      delay:          '=?mdDelay',
+      autofocus:      '=?mdAutofocus',
+      floatingLabel:  '@?mdFloatingLabel',
+      autoselect:     '=?mdAutoselect',
+      menuClass:      '@?mdMenuClass',
+      inputId:        '@?mdInputId',
+      
+      // google-search additions
+      predicate:      '=?gsPredicate', 
+      youtube:        '=?gsYoutube', 
+      submit:         '=?gsSubmit',
+      numResults:     '=?gsNumResults'
+
+    },
+    template:     function (element, attr) {
+      var noItemsTemplate = getNoItemsTemplate(),
+          itemTemplate    = getItemTemplate(),
+          leftover        = element.html();
+      return '\
+        <md-autocomplete-wrap\
+            layout="row"\
+            ng-class="{ \'md-whiteframe-z1\': !floatingLabel, \'md-menu-showing\': !$gsAutocompleteCtrl.hidden }"\
+            role="listbox">\
+          ' + getInputElement() + '\
+          <md-progress-linear\
+              ng-if="$gsAutocompleteCtrl.loading && !$gsAutocompleteCtrl.hidden"\
+              md-mode="indeterminate"></md-progress-linear>\
+          <md-virtual-repeat-container\
+              md-auto-shrink\
+              md-auto-shrink-min="1"\
+              ng-hide="$gsAutocompleteCtrl.hidden && !$gsAutocompleteCtrl.notFoundVisible()"\
+              class="md-autocomplete-suggestions-container md-whiteframe-z1"\
+              role="presentation">\
+            <ul class="md-autocomplete-suggestions"\
+                ng-class="::menuClass"\
+                id="ul-{{$gsAutocompleteCtrl.id}}"\
+                ng-mouseenter="$gsAutocompleteCtrl.listEnter()"\
+                ng-mouseleave="$gsAutocompleteCtrl.listLeave()"\
+                ng-mouseup="$gsAutocompleteCtrl.mouseUp()">\
+              <li md-virtual-repeat="item in $gsAutocompleteCtrl.matches"\
+                  ng-class="{ selected: $index === $gsAutocompleteCtrl.index }"\
+                  ng-click="$gsAutocompleteCtrl.select($index)"\
+                  md-extra-name="$gsAutocompleteCtrl.itemName">\
+                  ' + itemTemplate + '\
+                  </li>' + noItemsTemplate + '\
+            </ul>\
+          </md-virtual-repeat-container>\
+        </md-autocomplete-wrap>\
+        <aria-status\
+            class="md-visually-hidden"\
+            role="status"\
+            aria-live="assertive">\
+          <p ng-repeat="message in $gsAutocompleteCtrl.messages track by $index" ng-if="message">{{message}}</p>\
+        </aria-status>';
+
+      function getItemTemplate() {
+        var templateTag = element.find('md-item-template').detach(),
+            html = templateTag.length ? templateTag.html() : element.html();
+        if (!templateTag.length) element.empty();
+        return html;
+      }
+
+      function getNoItemsTemplate() {
+        var templateTag = element.find('md-not-found').detach(),
+            template = templateTag.length ? templateTag.html() : '';
+        return template
+            ? '<li ng-if="$gsAutocompleteCtrl.notFoundVisible()"\
+                         md-autocomplete-parent-scope>' + template + '</li>'
+            : '';
+
+      }
+
+      function getInputElement () {
+        if (attr.mdFloatingLabel) {
+          return '\
+            <md-input-container flex ng-if="floatingLabel">\
+              <label>{{floatingLabel}}</label>\
+              <input type="search"\
+                  id="{{ inputId || \'fl-input-\' + $gsAutocompleteCtrl.id }}"\
+                  name="{{inputName}}"\
+                  autocomplete="off"\
+                  ng-required="$gsAutocompleteCtrl.isRequired"\
+                  ng-minlength="inputMinlength"\
+                  ng-maxlength="inputMaxlength"\
+                  ng-disabled="$gsAutocompleteCtrl.isDisabled"\
+                  ng-model="$gsAutocompleteCtrl.scope.searchText"\
+                  ng-keydown="$gsAutocompleteCtrl.keydown($event)"\
+                  ng-blur="$gsAutocompleteCtrl.blur()"\
+                  ng-focus="$gsAutocompleteCtrl.focus()"\
+                  aria-owns="ul-{{$gsAutocompleteCtrl.id}}"\
+                  aria-label="{{floatingLabel}}"\
+                  aria-autocomplete="list"\
+                  aria-haspopup="true"\
+                  aria-activedescendant=""\
+                  aria-expanded="{{!$gsAutocompleteCtrl.hidden}}"/>\
+              <div md-autocomplete-parent-scope md-autocomplete-replace>' + leftover + '</div>\
+            </md-input-container>';
+        } else {
+          return '\
+            <input flex type="search"\
+                id="{{ inputId || \'input-\' + $gsAutocompleteCtrl.id }}"\
+                name="{{inputName}}"\
+                ng-if="!floatingLabel"\
+                autocomplete="off"\
+                ng-required="$gsAutocompleteCtrl.isRequired"\
+                ng-disabled="$gsAutocompleteCtrl.isDisabled"\
+                ng-model="$gsAutocompleteCtrl.scope.searchText"\
+                ng-keydown="$gsAutocompleteCtrl.keydown($event)"\
+                ng-blur="$gsAutocompleteCtrl.blur()"\
+                ng-focus="$gsAutocompleteCtrl.focus()"\
+                placeholder="{{placeholder}}"\
+                aria-owns="ul-{{$gsAutocompleteCtrl.id}}"\
+                aria-label="{{placeholder}}"\
+                aria-autocomplete="list"\
+                aria-haspopup="true"\
+                aria-activedescendant=""\
+                aria-expanded="{{!$gsAutocompleteCtrl.hidden}}"/>\
+            <button\
+                type="button"\
+                tabindex="-1"\
+                ng-if="$gsAutocompleteCtrl.scope.searchText && !$gsAutocompleteCtrl.isDisabled"\
+                ng-click="$gsAutocompleteCtrl.clear()">\
+              <md-icon md-svg-icon="md-close"></md-icon>\
+              <span class="md-visually-hidden">Clear</span>\
+            </button>\
+                ';
+        }
+      }
+    }
+  };
+}
+
+
+// -------------- Parent Directive ---------------
+function GsAutocompleteParentScope ($compile) {
+  return {
+    restrict: 'A',
+    terminal: true,
+    link:     postLink,
+    scope:    false
+  };
+  function postLink (scope, element, attr) {
+    var ctrl = scope.$parent.$gsAutocompleteCtrl;
+
+    // TODO: transclude self might make it possible to do this without
+    // re-compiling, which is slow.
+    $compile(element.contents())(ctrl.parent);
+    if (attr.hasOwnProperty('mdAutocompleteReplace')) {
+      element.after(element.contents());
+      element.remove();
+    }
+  }
+}
+
+
+})() // End Closure
+
+/* -------- GS Code to integrate above -----------
  // Controller
    function searchboxCtrl($scope, $resource, youTubeDataAPI) {
 
@@ -710,7 +956,7 @@ function MdAutocompleteCtrl ($scope, $element, $mdUtil, $mdConstant, $mdTheming,
       var mdElem = elem.find('md-autocomplete');
       var mdInput = mdElem.find('input');
       var mdScope = mdElem.isolateScope();
-      var mdCtrl = mdScope.$mdAutocompleteCtrl;
+      var mdCtrl = mdScope.$gsAutocompleteCtrl;
 
       // Keeps searchText and selectedItem synched across instances of search box
       // so that the last typed search is identical in toolbar and sidebar
@@ -778,6 +1024,6 @@ function MdAutocompleteCtrl ($scope, $element, $mdUtil, $mdConstant, $mdTheming,
       })
    }
 
-
+*/
 
 
