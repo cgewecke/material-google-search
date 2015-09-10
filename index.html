@@ -1,5 +1,25 @@
 <html>
-<body>
-<p> hello </p>
-</body>
+	<head>
+		<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/angular-material/0.10.1/angular-material.css">
+		<link rel="stylesheet" href="autocomplete.css" >
+	</head>
+	<body ng-app="AutocompleteTest">
+
+		<div ng-controller="GoogleSearchController as search">
+			
+
+			<iframe id="ytplayer" type="text/html" width="640" height="390"
+			  src="http://www.youtube.com/embed/M7lc1UVf-VE?autoplay=1&playsinline=1&origin=http://example.com"
+			  frameborder="0"/>
+		</div>
+
+		<script src="bower_components/angular/angular.js"></script>
+    	<script src="bower_components/angular-animate/angular-animate.js"></script>
+    	<script src="bower_components/angular-aria/angular-aria.js"></script>
+    	<script src="bower_components/angular-material/angular-material.js"></script>
+
+		<script src="googlesearch.autocomplete.js"></script>
+		<script src="main.js"></script>
+
+	</body>
 </html>
